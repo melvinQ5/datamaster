@@ -1,0 +1,20 @@
+<!-- 渲染模板 -->
+{% extends "base.html" %} <!-- 先从基础模板获取骨架 -->
+{% block body %}
+<!-- semantic原因 隐藏分隔条 -->
+<div class="ui hidden divider"></div>
+
+<!-- 因为semantic ui的特性需要在body部分写个pusher避免内容被顶部导航栏遮挡 -->
+<div id="pusher" class="pusher" style="padding-top:50px">
+    <div class="ui celled grid">
+        <!-- 左边3/16为filter页面, include -->
+        <div class="three wide column">
+            {% include 'report_data/filter.html' %}
+        </div>
+        <!-- 右边13/16为display页面, 预留block -->
+        <div class="thirteen wide column">
+            {% include 'report_data/display.html' %}
+        </div>
+    </div>
+</div>
+{% endblock body %}

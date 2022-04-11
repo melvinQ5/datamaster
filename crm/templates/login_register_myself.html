@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<!--导入静态资源-->
+{% load static %}
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>登录</title>
+    <!-- 
+    <link href="static css/lib/bootstrap.min.css" rel="stylesheet">
+    <link href="css/login.css" rel="stylesheet"> 
+    -->
+</head>
+<body>
+
+{% csrf_token%}
+ <!--csrf 必须放在form标签中-->
+<div class="login-content">
+    <div class="transition"></div>
+    <div class="default-login">
+        <div class="login-close"></div>
+        <div class="login-title" id="login_title">华美紫馨CRM登录</div>
+        <input class="user-info" type="text" placeholder="用户名/邮箱/手机号" autofocus='autofocus' id="username"/></br>
+        <input id="password" class="password" type="password" placeholder="密码"/></br>
+        <label class="error-msg"></label>
+        <input class="login-btn" type='button' value="登录"/>
+        <ul>
+            <li><span id="no_account_tip">还没有账号？| </span></li>
+            <input id="register" type='button' class="register" value='立即注册'/>
+            <li><a id="forget" class="forget">忘记密码？</a></li>
+        </ul>
+    </div>
+    <div id='reg' style="display:none">
+        <input class="reg-username" type='text' placeholder='用户名必须字母开头' autofocus='autofocus' id='reg-username'/>
+        <span id="test-reg-u"></span></br>
+        <input class="reg-email" type='text' placeholder='填写邮箱' id='reg-email'/>
+        <span id="test-reg-e"></span></br>
+        <input class="reg-password" type='password' placeholder='密码必须同时含有大小写字母及数字'  id='reg-password'/>
+        <span id="test-reg-p"></span></br>
+        <input class="repeat-password" type='password' placeholder='再次填写密码' id='repeat-password'/>
+        <span id="test-reg-p2"></span></br>
+        <input class='register-btn' type='button' value="注册"/>
+    </div>
+    <!-- 导入jquery文件-->
+    <script src="{% static 'js/jquery.min.js'%}"></script>
+    <script src="{% static 'js/jquery.cookie.js'%}"></script> 
+    <!-- <script src="https://cdn.bootcss.com/jquery-cookie/1.4.1/jquery.cookie.js"></script>  -->
+    <script type="text/javascript">
+        //点击注册，显示注册界面
+        $('.register').click(function(){
+            $('#reg').show();
+            $('.default-login').hide();
+            $('#reg-username').focus();
+        });
+        //验证用户名
+        $('#reg-username').blur(function(){            
+            // 获取用户名
+            var username = $('#reg-username').val();
+            // 验证用户名格式，必须字母加数字
+            // var regRule =  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[^]{8,16}$/;
+            //if(!regRule.test(username)){
+            //    $('#test-reg-u').html('用户名必须同时包含大小写字母')}else{$('#test-reg-u').html('格式正确')};
+            // return;
+            // 格式验证通过后，发送ajax 请求验证用户名唯一
+            $.ajax({
+                'type':'POST',
+                'url':'{% url 'system:unique_username' %}',
+                'data':{
+                    'crsfmiddlewaretoken':'{{csrf_token}}',
+                    'username':username},
+                'datatype':'json',
+                'success':function(result){
+                    $('#test-reg-u').html(result);
+                },
+                'error':function(result){
+                    $('#test-reg-u').html(result);
+                }
+            });
+        });
+
+        //验证邮箱格式
+        $('#reg-email').blur(function(){            
+            // 获取邮箱
+            var email = $('#reg-email').val();
+
+            // 验证邮箱格式及非空提醒
+            var regRule = /^([a-zA-Z0-9_\.\-])+\@(([a-zA-Z0-9\-])+\.)+([a-zA-Z0-9]{2,4})+$/;
+            if(!regRule.test(email)){
+                $('#test-reg-e').html('请检查邮箱格式')}else{$('#test-reg-e').html('√')};
+            return false
+        });
+        //验证密码格式
+        $('#reg-password').blur(function(){            
+            pwd = $('#reg-password').val(); // 变量还需要作用在下一个事件，所以不带var
+            // 验证密码长度
+            // 未写
+            // 验证密码格式
+            var regRule =  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[^]{8,16}$/;
+            if(!regRule.test(pwd)){
+                $('#test-reg-p').html('密码要求同时有大小写字母及数字')}else{$('#test-reg-p').html('√')};
+            return false
+        });
+        //验证再次输入密码
+        $('#repeat-password').blur(function(){            
+            var pwd2 = $('#repeat-password').val();
+            if(pwd2 != pwd){
+                $('#test-reg-p2').html('两次密码不一致')}else{$('#test-reg-p2').html('√')};
+            return false
+        });
+
+    </script>
+</div>
+</body>
+</html>
