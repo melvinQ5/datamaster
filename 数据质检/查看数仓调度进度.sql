@@ -1,0 +1,1 @@
+select *  from WideTableCalcLog order by logtime desc limit 100

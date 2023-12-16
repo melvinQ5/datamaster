@@ -1,0 +1,478 @@
+/*
+ 1-5月，泉州的当月刊登出单率，月广告转化率，月动销率，月SKU单产，月出单SKU数，当月爆旺款数量，当月爆旺款数量，当月爆旺款的SA链接数量，当月爆旺款的SA链接单产。
+就是1-5月，每个月的以上结果数据
+ */
+
+
+with
+t_orde as (
+select
+	WEEKOFYEAR( paytime) pay_week
+	,MONTH( paytime)  pay_month
+	,year(paytime) pay_year
+	,OrderNumber ,PlatOrderNumber ,TotalGross,TotalProfit,TotalExpend ,SaleCount
+	,ExchangeUSD,TransactionType,SellerSku,RefundAmount,AdvertisingCosts,Asin,BoxSku ,PurchaseCosts
+	,paytime ,Product_SPU ,feegross
+	,ms.department ,ms.split_part(NodePathNameFull,'>',2) dep2 ,ms.NodePathName ,ms.site
+	,case when ms.SellUserName is null then '店铺无首选销售员' else ms.SellUserName end as SellUserName
+	,ms.Code as shopcode
+from import_data.wt_orderdetails wo
+join import_data.mysql_store ms on wo.shopcode=ms.Code
+	and paytime >= '${StartDay}' and paytime <'${NextStartDay}'
+	and ms.Department = '快百货' and NodePathName regexp '泉州'
+	and wo.IsDeleted=0
+)
+
+
+,t_list as ( -- 23年内刊登过的链接（含是删除
+select wl.BoxSku ,wl.SKU ,MinPublicationDate ,IsDeleted  ,wl.ShopCode ,SellerSKU ,ASIN
+	,WEEKOFYEAR( MinPublicationDate) pub_week
+	,MONTH( MinPublicationDate) pub_month
+	,year( MinPublicationDate) pub_year
+	,ms.department ,split_part(NodePathNameFull,'>',2) dep2 ,ms.NodePathName
+	,case when ms.SellUserName is null then '店铺无首选销售员' else ms.SellUserName end as SellUserName
+from wt_listing wl
+join import_data.mysql_store ms on wl.ShopCode = ms.Code   and NodePathName regexp '泉州'
+where
+	MinPublicationDate>= '${StartDay}'  and MinPublicationDate <'${NextStartDay}'
+-- 	and wl.IsDeleted = 0
+    and ms.Department = '快百货'
+--   and SellerSku not regexp '-BJ-|-BJ|BJ-|bJ|Bj|bj|BJ'
+)
+
+,t_ad as (
+select  asa.AdActivityName ,campaignBudget ,TotalSale7Day , asa.TotalSale7DayUnit , abs(asa.Clicks) Clicks, asa.Exposure
+	,ROAS ,Acost as ACOS ,abs(spend) spend
+	, asa.CreatedTime, asa.ShopCode ,asa.Asin  ,asa.SellerSKU
+    ,MONTH( CreatedTime) ad_month
+from import_data.AdServing_Amazon asa 
+where asa.CreatedTime >='${StartDay}' and asa.CreatedTime<'${NextStartDay}'
+)
+
+-- select * from t_ad
+
+, t_list_stat as ( -- 表1 刊登计算
+select
+	dep2 ,pub_year ,pub_month
+	,count(distinct BoxSku)  `刊登SKU数`
+	,count(distinct concat(t_list.shopcode,t_list.SellerSku,t_list.Asin)) `刊登链接数`
+from t_list
+group by dep2 ,pub_year ,pub_month
+)
+
+
+,t_list_sale_stat as (
+select dep2  ,pay_year ,pay_month
+	,sum(salecount) `销量`
+	,sum(TotalGross) `销售额`
+	,sum(TotalProfit) `利润额`
+	,count(distinct concat(shopcode,sellersku)) `出单链接数`
+	,count(distinct boxsku) `出单sku数`
+from t_orde
+group by dep2  ,pay_year ,pay_month
+)
+
+, t_list_sale_in_same_month as ( -- 当月刊登当月出单
+select od.dep2  ,pay_year ,pay_month
+	, count(distinct concat(od.shopcode,od.sellersku)) `刊登当月出单链接数`
+from t_list
+join t_orde od
+	on t_list.shopcode = od.shopcode and t_list.sellersku = od.sellersku
+	and t_list.pub_month = od.pay_month -- 当月刊登 当月出单
+group by od.dep2  ,pay_year ,pay_month
+)
+
+, t_ad_stat as (
+select tmp.*
+	, round(ad_sku_Clicks/ad_sku_Exposure,4) as `广告点击率`
+	, round(ad_sku_TotalSale7DayUnit/ad_sku_Clicks,6) as `广告转化率`
+	, round(ad_TotalSale7Day/ad_Spend,2) as `ROAS`
+	, round(ad_Spend/ad_TotalSale7Day,2) as `ACOS`
+from
+	( select ad_month
+		-- 曝光量
+		, round(sum(Exposure)) as ad_sku_Exposure
+		-- 广告花费
+		, round(sum( spend ),2) as ad_Spend
+		-- 广告销售额
+		, round(sum(TotalSale7Day),2) as ad_TotalSale7Day
+		-- 广告销量
+		, round(sum(TotalSale7DayUnit),2) as ad_sku_TotalSale7DayUnit
+		-- 点击量
+		, round(sum(Clicks)) as ad_sku_Clicks
+		from t_ad  group by ad_month
+	) tmp
+)
+-- select * from t_ad_stat
+
+, od_list_in30d as ( -- 公司爆旺款
+select asin,wo.site,Product_SPU as spu,boxsku
+	,round(sum((totalgross-feegross)/ExchangeUSD),2) sales_no_freight -- 含退款不含运费
+	,round(sum((totalgross)/ExchangeUSD),2) sales_in30d -- 含退款不含运费
+	,ifnull(round(sum(case when PayTime >=date_add('${NextStartDay}', INTERVAL -7 DAY) and PayTime<'${NextStartDay}' then (totalgross)/ExchangeUSD end),2),0) sales_in7d
+from import_data.wt_orderdetails wo
+join mysql_store ms on wo.shopcode=ms.Code
+where PayTime >=date_add('${NextStartDay}', INTERVAL -30 DAY) and PayTime<'${NextStartDay}' and wo.IsDeleted=0
+	and TransactionType <> '其他'  and asin <>''  and wo.boxsku<>''  and ms.department regexp '快'
+group by wo.site,asin,spu,boxsku
+)
+
+,prod_mark as ( -- 商品分层
+    select t.spu
+         , case
+               when sales_no_freight >= 1500 then '爆款'
+               when sales_no_freight >= 500 and sales_no_freight < 1500 then '旺款'
+               else '其他出单产品' end as prod_level
+         , sales_no_freight
+         , sales_in30d
+         , sales_in7d
+    from (select spu
+               , sum(sales_no_freight) sales_no_freight
+               , sum(sales_in30d)      sales_in30d
+               , sum(sales_in7d)       sales_in7d
+          from od_list_in30d
+          group by spu) t )
+
+,prod_mark_stat as (
+    select
+        count( case when prod_level='爆款' then 1 end ) 公司爆款spu数
+        ,count( case when prod_level='旺款' then 1 end ) 公司旺款spu数
+        ,round ( sum( case when prod_level= '爆款' then sales_in30d end ) / count( case when prod_level='爆款' then 1 end ) ,2) 公司爆款单产
+        ,round ( sum( case when prod_level= '旺款' then sales_in30d end ) / count( case when prod_level='旺款' then 1 end ) ,2) 公司旺款单产
+    from prod_mark
+)
+
+,list_mark as (
+select case -- 按日均订单数
+          when list_orders / 30 >= 5 and prod_level regexp '爆款|旺款' THEN 'S'
+          when list_orders / 30 >= 1 and prod_level regexp '爆款|旺款' THEN 'A'
+          when list_orders / 30 >= 0.5 and prod_level regexp '爆款|旺款' THEN 'B'
+          when list_orders / 30 > 0 and prod_level regexp '爆款|旺款' THEN 'C'
+          ELSE '散单'
+          END as list_level
+    ,t.Site ,t.Asin
+    ,t.sales_in30d
+from (select site  -- 泉州出单
+          , asin
+          , spu
+          , sum(orders)           list_orders
+          , sum(sales_no_freight) sales_no_freight
+          , sum(sales_in30d)      sales_in30d
+          , sum(sales_in7d)       sales_in7d
+     from (
+        select asin,wo.site,Product_SPU as spu,boxsku
+            ,round(sum((totalgross-feegross)/ExchangeUSD),2) sales_no_freight -- 含退款不含运费
+            ,round(sum((totalgross)/ExchangeUSD),2) sales_in30d -- 含退款不含运费
+             ,count(distinct PlatOrderNumber) orders
+            ,ifnull(round(sum(case when PayTime >=date_add('${NextStartDay}', INTERVAL -7 DAY) and PayTime<'${NextStartDay}' then (totalgross)/ExchangeUSD end),2),0) sales_in7d
+        from import_data.wt_orderdetails wo
+        join mysql_store ms on wo.shopcode=ms.Code
+        where PayTime >=date_add('${NextStartDay}', INTERVAL -30 DAY) and PayTime<'${NextStartDay}' and wo.IsDeleted=0
+            and TransactionType <> '其他'  and asin <>''  and wo.boxsku<>''  and ms.department regexp '快' and  nodepathname regexp '泉州'
+        group by wo.site,asin,spu,boxsku
+        ) a
+     group by site, asin, spu
+     ) t
+join prod_mark s on t.spu = s.spu  -- 公司爆旺款
+)
+
+,list_mark_stat as (
+    select
+        count( case when list_level='S' then 1 end ) S链接数
+        , count( case when list_level='A' then 1 end ) A链接数
+        , count( case when list_level='B' then 1 end ) B链接数
+        , count( case when list_level='C' then 1 end ) C链接数
+        , count( case when list_level='散单' then 1 end ) 散单链接数
+        , round( sum( case when list_level='S' then sales_in30d end ) / count( case when list_level='S' then 1 end ),2) as S链接单产
+        , round( sum( case when list_level='A' then sales_in30d end ) / count( case when list_level='A' then 1 end ),2) as A链接单产
+        , round( sum( case when list_level='B' then sales_in30d end ) / count( case when list_level='B' then 1 end ),2) as B链接单产
+        , round( sum( case when list_level='C' then sales_in30d end ) / count( case when list_level='C' then 1 end ),2) as C链接单产
+        , round( sum( case when list_level='散单' then sales_in30d end ) / count( case when list_level='散单' then 1 end ),2) as 散单链接单产
+    from list_mark
+)
+
+, t_merge as (
+select
+	t_list_stat.dep2
+	,t_list_stat.pub_year ,t_list_stat.pub_month
+	,t_list_stat.`刊登SKU数`
+	,t_list_stat.`刊登链接数`
+	,t_list_sale_stat.`销量`
+	,t_list_sale_stat.`销售额`
+	,t_list_sale_stat.`利润额`
+	,t_list_sale_stat.`出单链接数`
+	,t_list_sale_stat.`出单sku数`
+    ,t_list_sale_in_same_month.刊登当月出单链接数
+from t_list_stat
+left join t_list_sale_stat on t_list_sale_stat.pay_year = t_list_stat.pub_year and t_list_sale_stat.pay_month = t_list_stat.pub_month
+left join t_list_sale_in_same_month on t_list_sale_in_same_month.pay_year = t_list_stat.pub_year and t_list_sale_in_same_month.pay_month = t_list_stat.pub_month
+)
+-- select * from t_merge
+
+-- 导出 部门-组员-周新刊登动销统计
+select
+	dep2 `团队`
+	,pub_month `统计月`
+--	,`销量`
+--	,`销售额`
+--	,`利润额`
+--	,concat(round(`利润额`/`销售额`*100,2),'%') `毛利率`
+	,`出单链接数`
+	,`刊登当月出单链接数`
+	,`刊登链接数`
+	,concat(round(`刊登当月出单链接数`/`刊登链接数`*100,2),'%') `刊登当月出单率`
+	,`出单SKU数`
+	,`刊登SKU数`
+	,concat(round(`出单SKU数`/`刊登SKU数`*100,2),'%') `SKU出单率`
+	,round(`销售额`/ `出单链接数`,1) `出单链接单产`
+	,round(`销售额`/ `出单sku数`,1) `出单sku单产`
+    , ad_Spend 广告花费
+    , ad_sku_Exposure 广告曝光量
+    , `广告点击率`
+	, `广告转化率`
+	,  `ROAS`
+	, `ACOS`
+    ,prod_mark_stat.*
+    ,list_mark_stat.*
+from t_merge
+join prod_mark_stat on 1 = 1
+join list_mark_stat on 1 = 1
+left join t_ad_stat on t_merge.pub_month = t_ad_stat.ad_month
+order by pub_year ,pub_month
+
+
+/*
+
+ -- 当月出单 中当月刊登的链接
+with
+t_orde as (
+select
+	WEEKOFYEAR( paytime) pay_week
+	,MONTH( paytime)  pay_month
+	,year(paytime) pay_year
+	,OrderNumber ,PlatOrderNumber ,TotalGross,TotalProfit,TotalExpend ,SaleCount
+	,ExchangeUSD,TransactionType,SellerSku,RefundAmount,AdvertisingCosts,Asin,BoxSku ,PurchaseCosts
+	,paytime ,Product_SPU ,feegross
+	,ms.department ,ms.split_part(NodePathNameFull,'>',2) dep2 ,ms.NodePathName ,ms.site
+	,case when ms.SellUserName is null then '店铺无首选销售员' else ms.SellUserName end as SellUserName
+	,ms.Code as shopcode
+from import_data.wt_orderdetails wo
+join import_data.mysql_store ms on wo.shopcode=ms.Code
+	and paytime >= '${StartDay}' and paytime <'${NextStartDay}'
+	and ms.Department = '快百货' and NodePathName regexp '泉州'
+	and wo.IsDeleted=0
+)
+
+
+,t_list as ( -- 23年内刊登链接
+select wl.BoxSku ,wl.SKU ,MinPublicationDate ,IsDeleted  ,wl.ShopCode ,SellerSKU ,ASIN
+	,WEEKOFYEAR( MinPublicationDate) pub_week
+	,MONTH( MinPublicationDate) pub_month
+	,year( MinPublicationDate) pub_year
+	,ms.department ,split_part(NodePathNameFull,'>',2) dep2 ,ms.NodePathName
+	,case when ms.SellUserName is null then '店铺无首选销售员' else ms.SellUserName end as SellUserName
+from wt_listing wl
+join import_data.mysql_store ms on wl.ShopCode = ms.Code   and NodePathName regexp '泉州'
+where
+	MinPublicationDate>= '${StartDay}'  and MinPublicationDate <'${NextStartDay}'
+	and wl.IsDeleted = 0 and ms.Department = '快百货'
+--   and SellerSku not regexp '-BJ-|-BJ|BJ-|bJ|Bj|bj|BJ'
+)
+
+,t_ad as (
+select t_list.sku, asa.AdActivityName ,campaignBudget ,TotalSale7Day , asa.TotalSale7DayUnit , abs(asa.Clicks) Clicks, asa.Exposure
+	,ROAS ,Acost as ACOS ,abs(spend) spend
+	, asa.CreatedTime, asa.ShopCode ,asa.Asin  ,asa.SellerSKU
+	, timestampdiff(SECOND,MinPublicationDate,asa.CreatedTime)/86400 as ad_days -- 广告 - 刊登
+from t_list
+join import_data.AdServing_Amazon asa on t_list.ShopCode = asa.ShopCode and t_list.SellerSKU = asa.SellerSKU
+where asa.CreatedTime >='${StartDay}' and asa.CreatedTime<'${NextStartDay}'
+)
+
+, t_list_stat as ( -- 表1 刊登计算
+select
+	dep2 ,pub_year ,pub_month
+	,count(distinct BoxSku)  `刊登SKU数`
+	,count(distinct concat(t_list.shopcode,t_list.SellerSku,t_list.Asin)) `刊登链接数`
+from t_list
+group by dep2 ,pub_year ,pub_month
+)
+
+, t_list_sale_details as ( -- 当月刊登当月出单
+select
+	t_list.dep2 ,t_list.SellUserName ,t_list.sellersku ,t_list.shopcode ,pub_year ,pub_month
+	,od.boxsku  ,pay_year ,pay_month ,od.salecount  ,od.TotalGross ,od.TotalProfit
+from t_list
+join (
+	select boxsku ,sellersku ,shopcode  ,pay_year ,pay_month
+		,sum(salecount) salecount
+		,round( sum((TotalGross)/ExchangeUSD),2)  TotalGross
+		,round( sum((TotalProfit)/ExchangeUSD),2)  TotalProfit
+	from t_orde group by boxsku ,sellersku ,shopcode ,pay_year ,pay_month
+	) od
+	on t_list.shopcode = od.shopcode and t_list.sellersku = od.sellersku
+	and t_list.pub_month = od.pay_month -- 当月刊登 当月出单
+)
+
+,t_list_sale_stat as (
+select dep2  ,pub_year ,pub_month
+	,sum(salecount) `销量`
+	,sum(TotalGross) `销售额`
+	,sum(TotalProfit) `利润额`
+	,count(distinct concat(shopcode,sellersku)) `出单链接数`
+	,count(distinct boxsku) `出单sku数`
+from t_list_sale_details
+group by dep2  ,pub_year ,pub_month
+)
+
+, t_ad_stat as (
+select tmp.*
+	, round(ad_sku_Clicks/ad_sku_Exposure,4) as `累计广告点击率`
+	, round(ad_sku_TotalSale7DayUnit/ad_sku_Clicks,6) as `累计广告转化率`
+	, round(ad_TotalSale7Day/ad_Spend,2) as `累计ROAS`
+	, round(ad_Spend/ad_TotalSale7Day,2) as `累计ACOS`
+from
+	( select shopcode  ,sellersku
+		-- 曝光量
+		, round(sum(Exposure)) as ad_sku_Exposure
+		-- 广告花费
+		, round(sum( spend ),2) as ad_Spend
+		-- 广告销售额
+		, round(sum(TotalSale7Day),2) as ad_TotalSale7Day
+		-- 广告销量
+		, round(sum(TotalSale7DayUnit),2) as ad_sku_TotalSale7DayUnit
+		-- 点击量
+		, round(sum(Clicks)) as ad_sku_Clicks
+		from t_ad  group by shopcode  ,sellersku
+	) tmp
+)
+-- select * from t_ad_stat
+
+, od_list_in30d as ( -- 公司爆旺款
+select asin,wo.site,Product_SPU as spu,boxsku
+	,round(sum((totalgross-feegross)/ExchangeUSD),2) sales_no_freight -- 含退款不含运费
+	,round(sum((totalgross)/ExchangeUSD),2) sales_in30d -- 含退款不含运费
+	,ifnull(round(sum(case when PayTime >=date_add('${NextStartDay}', INTERVAL -7 DAY) and PayTime<'${NextStartDay}' then (totalgross)/ExchangeUSD end),2),0) sales_in7d
+from import_data.wt_orderdetails wo
+join mysql_store ms on wo.shopcode=ms.Code
+where PayTime >=date_add('${NextStartDay}', INTERVAL -30 DAY) and PayTime<'${NextStartDay}' and wo.IsDeleted=0
+	and TransactionType <> '其他'  and asin <>''  and wo.boxsku<>''  and ms.department regexp '快'
+group by wo.site,asin,spu,boxsku
+)
+
+,prod_mark as ( -- 商品分层
+    select t.spu
+         , case
+               when sales_no_freight >= 1500 then '爆款'
+               when sales_no_freight >= 500 and sales_no_freight < 1500 then '旺款'
+               else '其他出单产品' end as prod_level
+         , sales_no_freight
+         , sales_in30d
+         , sales_in7d
+    from (select spu
+               , sum(sales_no_freight) sales_no_freight
+               , sum(sales_in30d)      sales_in30d
+               , sum(sales_in7d)       sales_in7d
+          from od_list_in30d
+          group by spu) t )
+
+,prod_mark_stat as (
+    select
+        count( case when prod_level='爆款' then 1 end ) 公司爆款spu数
+        , count( case when prod_level='旺款' then 1 end ) 公司旺款spu数
+    from prod_mark
+)
+
+,list_mark as (
+select case -- 按日均订单数
+          when list_orders / 30 >= 5 and prod_level regexp '爆款|旺款' THEN 'S'
+          when list_orders / 30 >= 1 and prod_level regexp '爆款|旺款' THEN 'A'
+          when list_orders / 30 >= 0.5 and prod_level regexp '爆款|旺款' THEN 'B'
+          when list_orders / 30 > 0 and prod_level regexp '爆款|旺款' THEN 'C'
+          ELSE '散单'
+          END as list_level
+    ,t.Site ,t.Asin
+    ,t.sales_in30d
+from (select site
+          , asin
+          , spu
+          , sum(orders)           list_orders
+          , sum(sales_no_freight) sales_no_freight
+          , sum(sales_in30d)      sales_in30d
+          , sum(sales_in7d)       sales_in7d
+     from ( -- 公司爆旺款
+        select asin,wo.site,Product_SPU as spu,boxsku
+            ,round(sum((totalgross-feegross)/ExchangeUSD),2) sales_no_freight -- 含退款不含运费
+            ,round(sum((totalgross)/ExchangeUSD),2) sales_in30d -- 含退款不含运费
+             ,count(distinct PlatOrderNumber) orders
+            ,ifnull(round(sum(case when PayTime >=date_add('${NextStartDay}', INTERVAL -7 DAY) and PayTime<'${NextStartDay}' then (totalgross)/ExchangeUSD end),2),0) sales_in7d
+        from import_data.wt_orderdetails wo
+        join mysql_store ms on wo.shopcode=ms.Code
+        where PayTime >=date_add('${NextStartDay}', INTERVAL -30 DAY) and PayTime<'${NextStartDay}' and wo.IsDeleted=0
+            and TransactionType <> '其他'  and asin <>''  and wo.boxsku<>''  and ms.department regexp '快' and  nodepathname regexp '泉州'
+        group by wo.site,asin,spu,boxsku
+        ) a -- 泉州出单
+     group by site, asin, spu
+     ) t
+join prod_mark s on t.spu = s.spu  -- 公司爆旺款
+)
+
+,list_mark_stat as (
+    select
+        count( case when list_level='S' then 1 end ) S链接数
+        , count( case when list_level='A' then 1 end ) A链接数
+        , count( case when list_level='B' then 1 end ) B链接数
+        , count( case when list_level='C' then 1 end ) C链接数
+        , count( case when list_level='散单' then 1 end ) 散单链接数
+        , round( sum( case when list_level='S' then sales_in30d end ) / count( case when list_level='S' then 1 end ),2) as S链接单产
+        , round( sum( case when list_level='A' then sales_in30d end ) / count( case when list_level='A' then 1 end ),2) as A链接单产
+        , round( sum( case when list_level='B' then sales_in30d end ) / count( case when list_level='B' then 1 end ),2) as B链接单产
+        , round( sum( case when list_level='C' then sales_in30d end ) / count( case when list_level='C' then 1 end ),2) as C链接单产
+        , round( sum( case when list_level='散单' then sales_in30d end ) / count( case when list_level='散单' then 1 end ),2) as 散单链接单产
+    from list_mark
+)
+
+
+
+, t_merge as (
+select
+	t_list_stat.dep2
+	,t_list_stat.pub_year ,t_list_stat.pub_month
+	,t_list_stat.`刊登SKU数`
+	,t_list_stat.`刊登链接数`
+	,t_list_sale_stat.`销量`
+	,t_list_sale_stat.`销售额`
+	,t_list_sale_stat.`利润额`
+	,t_list_sale_stat.`出单链接数`
+	,t_list_sale_stat.`出单sku数`
+from t_list_stat
+left join t_list_sale_stat on t_list_sale_stat.pub_year = t_list_stat.pub_year and t_list_sale_stat.pub_month = t_list_stat.pub_month
+)
+-- select * from t_merge
+
+-- 导出 部门-组员-周新刊登动销统计
+select
+	dep2 `团队`
+	,pub_month `刊登月`
+--	,`销量`
+--	,`销售额`
+--	,`利润额`
+--	,concat(round(`利润额`/`销售额`*100,2),'%') `毛利率`
+	,`出单链接数`
+	,`刊登链接数`
+	,concat(round(`出单链接数`/`刊登链接数`*100,2),'%') `链接出单率`
+	,`出单SKU数`
+	,`刊登SKU数`
+	,concat(round(`出单SKU数`/`刊登SKU数`*100,2),'%') `SKU出单率`
+	,round(`销售额`/ `出单链接数`,1) `出单链接单产`
+	,round(`销售额`/ `出单sku数`,1) `出单sku单产`
+    ,prod_mark_stat.*
+    ,list_mark_stat.*
+from t_merge
+join prod_mark_stat on 1=1
+join list_mark_stat on 1=1
+order by pub_year ,pub_month
+
+*/
+
+

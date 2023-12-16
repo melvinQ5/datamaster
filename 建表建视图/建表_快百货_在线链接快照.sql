@@ -1,0 +1,126 @@
+
+-- 拉链表 wt_online_listing_scd
+
+-- 快百货、商厨汇、木工汇的在线链接
+-- 初始化当前链接表， startday = '2023-12-12' endday = '9999-12-31'
+select id as listingId ,Department  ,'2023-12-12' as startday , '9999-12-31' as endday
+from erp_amazon_amazon_listing eaal
+join mysql_store ms  on eaal.ShopCode= ms.code and ms.Department regexp '快百货|商厨汇|木工汇' and eaal.ListingStatus=1 and ms.ShopStatus='正常';
+
+select count(distinct id ) 在线链接数
+from erp_amazon_amazon_listing eaal
+join mysql_store ms  on eaal.ShopCode= ms.code and ms.Department regexp '快百货' and eaal.ListingStatus=1 and ms.ShopStatus='正常';
+
+
+
+
+-- 思路，选出dorisimporttime范围的数据所涵盖的周度，再选择这些周度所包含的数据
+
+-- 构建好的拉链表，更新的时候只能逐天往后计算，中间有一天计算错误，后续的都得重刷；
+-- 运维的时候，更新的时候如果部分数据 update 错误，如何更正？
+
+CREATE TABLE `wt_online_listing_snap`
+(
+`ShopCode` varchar(64) NOT NULL COMMENT "店铺简码",
+`SellerSKU` varchar(128) NOT NULL COMMENT "来自Listing返回的 SellerSKU",
+`SKU` varchar(32) NOT NULL COMMENT "线下SKU",
+`StartDay` date  NULL COMMENT "开始在线日期",
+`EndDay` date NOT NULL COMMENT "最后在线日期",
+`ListingId` varchar(64) NOT NULL COMMENT "链接ID",
+`ReportType` varchar(16) NULL COMMENT "生成快照类型",
+`Department` varchar(64)  NULL COMMENT "部门",
+`ASIN` varchar(64) NULL COMMENT "asin",
+`Site` varchar(64) NULL COMMENT "站点",
+`ProductSalesName` varchar(64) NULL COMMENT "产品销售人员",
+`PublishUserName` varchar(64) NULL COMMENT "刊登人员",
+`SellUserName` varchar(64) NULL COMMENT "首选业务员",
+`NodePathName` varchar(64) NULL COMMENT "首选业务员团队",
+`SPU` varchar(32) NULL COMMENT "线下SPU",
+`ProductId` varchar(64) NULL COMMENT "线下关联产品的Id",
+`ListingStatus` varchar(32) NULL COMMENT "listing状态(1:在线,2:在线,3:下架,4:删除)",
+`ShopStatus` varchar(32) NULL COMMENT "店铺状态",
+`MinPublicationDate` datetime NULL COMMENT "刊登时间"
+) ENGINE=OLAP
+DUPLICATE  KEY(`GenerateDate`, `ShopCode`,`ListingId`)
+COMMENT "亚马逊链接快照表"
+PARTITION BY RANGE(`GenerateDate`)
+(
+PARTITION p202312 VALUES [('2023-12-01'), ('2024-01-01')),
+PARTITION p202401 VALUES [('2024-01-01'), ('2024-02-01')),
+PARTITION p202402 VALUES [('2024-02-01'), ('2024-03-01')),
+PARTITION p202403 VALUES [('2024-03-01'), ('2024-04-01')),
+PARTITION p202404 VALUES [('2024-04-01'), ('2024-05-01')),
+PARTITION p202405 VALUES [('2024-05-01'), ('2024-06-01')),
+PARTITION p202406 VALUES [('2024-06-01'), ('2024-07-01')),
+PARTITION p202407 VALUES [('2024-07-01'), ('2024-08-01')),
+PARTITION p202408 VALUES [('2024-08-01'), ('2024-09-01')),
+PARTITION p202409 VALUES [('2024-09-01'), ('2024-10-01')),
+PARTITION p202410 VALUES [('2024-10-01'), ('2024-11-01')),
+PARTITION p202411 VALUES [('2024-11-01'), ('2024-12-01')),
+PARTITION p202412 VALUES [('2024-12-01'), ('2025-01-01')),
+PARTITION p202501 VALUES [('2025-01-01'), ('2025-02-01')),
+PARTITION p202502 VALUES [('2025-02-01'), ('2025-03-01')),
+PARTITION p202503 VALUES [('2025-03-01'), ('2025-04-01')),
+PARTITION p202504 VALUES [('2025-04-01'), ('2025-05-01')),
+PARTITION p202505 VALUES [('2025-05-01'), ('2025-06-01')),
+PARTITION p202506 VALUES [('2025-06-01'), ('2025-07-01')),
+PARTITION p202507 VALUES [('2025-07-01'), ('2025-08-01')),
+PARTITION p202508 VALUES [('2025-08-01'), ('2025-09-01')),
+PARTITION p202509 VALUES [('2025-09-01'), ('2025-10-01')),
+PARTITION p202510 VALUES [('2025-10-01'), ('2025-11-01')),
+PARTITION p202511 VALUES [('2025-11-01'), ('2025-12-01')),
+PARTITION p202512 VALUES [('2025-12-01'), ('2026-01-01')),
+PARTITION p202601 VALUES [('2026-01-01'), ('2026-02-01')),
+PARTITION p202602 VALUES [('2026-02-01'), ('2026-03-01')),
+PARTITION p202603 VALUES [('2026-03-01'), ('2026-04-01')),
+PARTITION p202604 VALUES [('2026-04-01'), ('2026-05-01')),
+PARTITION p202605 VALUES [('2026-05-01'), ('2026-06-01')),
+PARTITION p202606 VALUES [('2026-06-01'), ('2026-07-01')),
+PARTITION p202607 VALUES [('2026-07-01'), ('2026-08-01')),
+PARTITION p202608 VALUES [('2026-08-01'), ('2026-09-01')),
+PARTITION p202609 VALUES [('2026-09-01'), ('2026-10-01')),
+PARTITION p202610 VALUES [('2026-10-01'), ('2026-11-01')),
+PARTITION p202611 VALUES [('2026-11-01'), ('2026-12-01')),
+PARTITION p202612 VALUES [('2026-12-01'), ('2027-01-01')),
+PARTITION p202701 VALUES [('2027-01-01'), ('2027-02-01')),
+PARTITION p202702 VALUES [('2027-02-01'), ('2027-03-01')),
+PARTITION p202703 VALUES [('2027-03-01'), ('2027-04-01')),
+PARTITION p202704 VALUES [('2027-04-01'), ('2027-05-01')),
+PARTITION p202705 VALUES [('2027-05-01'), ('2027-06-01')),
+PARTITION p202706 VALUES [('2027-06-01'), ('2027-07-01')),
+PARTITION p202707 VALUES [('2027-07-01'), ('2027-08-01')),
+PARTITION p202708 VALUES [('2027-08-01'), ('2027-09-01')),
+PARTITION p202709 VALUES [('2027-09-01'), ('2027-10-01')),
+PARTITION p202710 VALUES [('2027-10-01'), ('2027-11-01')),
+PARTITION p202711 VALUES [('2027-11-01'), ('2027-12-01')),
+PARTITION p202712 VALUES [('2027-12-01'), ('2028-01-01')),
+PARTITION p202801 VALUES [('2028-01-01'), ('2028-02-01')),
+PARTITION p202802 VALUES [('2028-02-01'), ('2028-03-01')),
+PARTITION p202803 VALUES [('2028-03-01'), ('2028-04-01')),
+PARTITION p202804 VALUES [('2028-04-01'), ('2028-05-01')),
+PARTITION p202805 VALUES [('2028-05-01'), ('2028-06-01')),
+PARTITION p202806 VALUES [('2028-06-01'), ('2028-07-01')),
+PARTITION p202807 VALUES [('2028-07-01'), ('2028-08-01')),
+PARTITION p202808 VALUES [('2028-08-01'), ('2028-09-01')),
+PARTITION p202809 VALUES [('2028-09-01'), ('2028-10-01')),
+PARTITION p202810 VALUES [('2028-10-01'), ('2028-11-01')),
+PARTITION p202811 VALUES [('2028-11-01'), ('2028-12-01')),
+PARTITION p202812 VALUES [('2028-12-01'), ('2029-01-01')),
+PARTITION p202901 VALUES [('2029-01-01'), ('2029-02-01')),
+PARTITION p202902 VALUES [('2029-02-01'), ('2029-03-01')),
+PARTITION p202903 VALUES [('2029-03-01'), ('2029-04-01')),
+PARTITION p202904 VALUES [('2029-04-01'), ('2029-05-01')),
+PARTITION p202905 VALUES [('2029-05-01'), ('2029-06-01')),
+PARTITION p202906 VALUES [('2029-06-01'), ('2029-07-01')),
+PARTITION p202907 VALUES [('2029-07-01'), ('2029-08-01')),
+PARTITION p202908 VALUES [('2029-08-01'), ('2029-09-01')),
+PARTITION p202909 VALUES [('2029-09-01'), ('2029-10-01')),
+PARTITION p202910 VALUES [('2029-10-01'), ('2029-11-01')),
+PARTITION p202911 VALUES [('2029-11-01'), ('2029-12-01')),
+PARTITION p202912 VALUES [('2029-12-01'), ('2030-01-01')))
+DISTRIBUTED BY HASH( `ListingId`,`ShopCode`) BUCKETS 10
+PROPERTIES (
+"replication_num" = "3",
+"in_memory" = "false",
+"storage_format" = "DEFAULT"
+);
