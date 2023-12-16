@@ -1,0 +1,172 @@
+<!-- 模板片段 -->
+{% block filter %} 
+<div class="ui container">
+    <div class="ui form">
+        <form action="" method="post">
+            <!-- 在Django所有的 POST 表单元素时，需要加上下方的csrf_token tag，主要是安全方面的机制，本例后续使用AJAX方法，这里的POST class和token都不生效 -->
+            {% csrf_token %}
+            <h3 class="ui header" id="analysis">分析维度</h3>
+            <div class="field">
+                <!-- 选择分析方式：滚动日or自然日 -->
+                <div class="fields">
+                    <div class="sixteen wide field">
+                        <select name="table_select" id="table_select" class="ui fluid search dropdown">
+                            <option value="dws_cust_register_day" selected>滚动日</option>
+                            <option value="dws_cust_register_cal">自然日</option>
+                        </select>
+                    </div>
+                </div>
+                <!-- 选择维度：渠道and部门-->
+                <div class="fields">
+                    <div class="eight wide field">
+                        <select name="channel_select" id="channel_select" class="ui fluid search dropdown">
+                            {% for item in channel_select %} 
+                                    <option value="{{ item }}">{{ item }}</option>  <!-- 显示值与设置值 -->
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="eight wide field">
+                        <select name="staff_dep_select" id="staff_dep_select" class="ui fluid search dropdown">
+                            {% for item in staff_dep_select %} 
+                                    <option value="{{ item }}">{{ item }}</option>  <!-- 显示值与设置值 -->
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <h3 class="ui header" id="data_filter">数据筛选</h3>
+            <div class="field">
+                {% for key, value in mselect_dict.items %}
+                <div class="field">
+                    <select name="{{ value.select|add:"_select[]" }}" id="{{ value.select|add:"_select" }}" multiple=""
+                            class="ui fluid search dropdown">
+                        <option value="">{{ key }}</option>
+                    </select>
+                </div>
+                {% endfor %}
+            </div>
+            <br>
+            <div class="ui buttons">
+                <input class="ui blue button" type='button' id='AJAX_get' value="查询"/>
+            </div>
+        </form>
+    </div>
+</div>
+
+
+<script>
+    // Semantic UI,初始化下拉选项 Search Dropdown控件
+    $('.ui.fluid.search.dropdown')
+        .dropdown({ fullTextSearch: true });
+
+
+    // dataTables,初始化表格
+    function initTable(table) {
+        table.DataTable({
+                dom:'',
+                order:[[1,"desc"]],//初始以索引为1的列排序（0开始）
+                pageLength:'15', //前端分页，初始每页25条
+                autoWidth:true, //不自动调整表格宽度
+                oLanguage:{ //ui label 中文化
+                    "sLengthMenu": "显示 _MENU_ 项结果",
+                    "sProcessing": "处理中...",
+                    "sZeroRecords": "没有匹配结果",
+                    "sInfo": "显示第 _START_ 至 _END_ 条结果,共 _TOTAL_ 条",
+                    "sInfoEmpty": "没有数据",
+                    "sInfoFiltered": "(获取 _MAX_ 条数据)",
+                    "sInfoPostFix": "",
+                    "sSearch": "搜索:",
+                    "sUrl": "",
+                    "sEmptyTable": "表中数据为空",
+                    "sLoadingRecords": "载入中...",
+                    "sInfoThousands": ",",
+                    "oPaginate": {
+                        "sFirst": "首页",
+                        "sPrevious": "上页",
+                        "sNext": "下页",
+                        "sLast": "末页"}
+                },
+                columnDefs:[ //对单列做设置
+                    {
+                        'targets':12,//指定设置索引为11的列
+                        'createdCell':function(td,cellData,rowData,row,col){
+                            if (cellData < 30) {
+                                $(td).css('color','red')
+                            } else if (cellData >60) {
+                                $(td).css('color','green')
+                            } else if (cellData.indexOf(',')!==-1){
+                                $(td).css('color','green')
+                            }
+                        }
+                    }, //第一组设置（可一次指定多个列同时生效）
+                    {
+                        'targets':11,//指定设置索引为11的列
+                        'createdCell':function(td,cellData,rowData,row,col){
+                            if (cellData == 0) {
+                                $(td).css('color','red')
+                            }
+                        }
+                    }
+                ]
+            }
+        );
+    };
+    
+
+
+    // filter页 获取参数值要放在事件里，否则初始化的时候就赋值了。
+    function get_form(){
+        var table_select=$('#table_select').val()
+        var channel_select = $('#channel_select').val();
+        var staff_dep_select =$('#staff_dep_select').val();
+
+        var data2send ={'csrfmiddlewaretoken':'{{csrf_token}}','table_select':table_select}
+        if (channel_select == null ){
+        } else {data2send['channel_select'] = channel_select;};
+        if (staff_dep_select == null) {
+        } else {data2send['staff_dep_select'] = staff_dep_select;}
+
+        return data2send
+    }
+
+    $('#AJAX_get').click(function(){
+        // semanticUI 调光器初始化，让用户聚焦到选项
+        var dimmer =$("#dimmer");
+        dimmer.attr('class','ui active dimmer'); //点击筛选后dimmer 变成active
+        dimmer.children('div').remove();//删掉初始化引导文字
+        dimmer.append("<div class='ui text loader'>数据加载中...</div>"); //替换为等待文字
+
+        // pyecharts 初始化图表(需要放在事件中)
+        var chart = echarts.init(
+            document.getElementById('bar_total_trend'), //这里获取元素若用jquery写法会报错
+            'white',
+            {renderer: 'canvas'});
+        chart.showLoading({
+                text:'正在加载数据'
+        });
+    
+        var data2send = get_form()
+
+        $.ajax({
+            'type':'POST',
+            'url':"{% url 'reports:query' %}", //url命名空间:url的name
+            'data':data2send, //嵌套字典要被发送出去，必须转成字符串
+            'datatype':'json',
+            'success':function(ret){
+                initTable($('#dt_display')) //初始化DataTables表格,该id在views中设置为dt_dispaly
+                $('#day1_count_total').html(ret['day1_count_total'].toLocaleString()); //传入kpi数据
+                $('#day7_count_total').html(ret['day7_count_total'].toLocaleString());
+                $('#day30_count_total').html(ret['day30_count_total'].toLocaleString());
+                $('#result_table').html(ret['cust_register_day']); //传入表格数据
+                chart.clear();
+                chart.setOption(ret['bar_total_trend']); //传入图表数据
+                chart.hideLoading();
+                dimmer.attr("class",'ui dimmer'); //去除遮罩的 acitve
+            },
+            'error':function(ret){
+                dimmer.children("div").text('发送错误,无法完成查询'); //AJAX回调生效失败
+            }
+        })
+    })
+</script>
+{% endblock %}

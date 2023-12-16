@@ -1,0 +1,120 @@
+<!-- 模板片段 -->
+{% block display %}
+<!-- 按需将几个div从lay模式改为float模式，以便能够并行显示-->
+<style type="text/css">
+    #div_copy{float:right}
+    #div_ext{float:right} 
+</style>
+<!-- 等待加载数据时的 Loading遮罩-->
+<div class="ui active dimmer" id="dimmer">
+    <div class="ui text" style="color: #FFFFFF">请在左侧筛选框选择分析维度</div>
+</div>
+<!-- 创建2个Semantic UI tab，根据鼠标点击切换，以保证页面干净清爽 -->
+<div class = 'ui pointing secondary menu'>
+    <a class='item active' data-tab='total'><i class='chart line icon'></i>总体表现</a>
+    <a class='item active' data-tab='competition'><i class='table icon'></i>明细</a>
+</div>
+<div class='ui tab segment active' data-tab = 'total'>
+    <h3 class="ui header">
+        <div class = "content">
+            日新增
+            <div class="sub header">KPI</div>
+        </div>
+    </h3>
+    <div class='ui divider'></div>
+
+
+    <!-- Semantic UI的statistic类能呈现“醒目大数字”的效果 -->
+    <div class="ui small three statistics">
+        <div class = "statistic">
+            <div class='value' id='day1_count_total'>{{day1_count_total}}</div>
+            <div class='label' id='label_size_unit'>昨天建档</div>
+        </div>
+        <div class = "statistic" id='div_gr'>
+            <div class='value' id='day7_count_total'>{{day7_count_total}}</div>
+            <div class='label' >近7天建档</div>
+        </div>
+        <div class = "statistic" id='div_gr'>
+            <div class='value' id='day30_count_total'>{{day30_count_total}}</div>
+            <div class='label' >近30天建档</div>
+        </div>
+    </div>
+    <h3 class="ui header">
+        <div class = "content">
+            建档趋势
+            <div class="sub header">柱状折线复合图</div>
+        </div>
+    </h3>
+    <div class='ui divider'></div>
+
+
+    <!-- pyecharts,为图表预留一个空白的dom -->
+    <div class="ui container">
+        <div id="bar_total_trend" style="width:1000px; height:300px;"></div>
+    </div>
+</div>
+<div class='ui tab segment ' data-tab = 'competition'>
+    <h3 class="ui header">
+        <div class = "content">
+            数据表格
+        </div>
+    </h3>
+    <div class='ui divider'></div>
+
+
+    <!-- 一键复制到剪切板，样式设置 -->
+    <div class="ui top attached button" tabindex="0" onclick="selectElenmentContents(document.getElementById('dt_display'));"
+        data-content="复制成功" data-position="bottom center" id='div_copy'><i class="copy icon"></i>一键复制到剪切板
+    </div>
+    <div class="ui top attached button" tabindex="0" onclick="selectElenmentContents(document.getElementById('dt_display'));"
+        data-content="导出成功" data-position="bottom center" id='div_ext'><i class="download icon"></i>导出至Excel
+    </div>
+    <!-- django加入表格html代码时需要加入|safe,保证html不会被自动转义 -->
+    <div class='ui container' id='result_table' style='width:100%;overflow-x:scroll;overflow-y:hidden;'>
+        {{cust_register_day|safe}}
+    </div>
+</div>
+
+<script>
+    $('.pointing.secondary.menu .item').tab(); //保证Semantic UI tab类正常工作
+    // 一键复制到剪切板编写
+    function selectElementContents(el) {
+        var body = document.body, range, sel;
+        if (document.createRange && window.getSelection) {
+            range = document.createRange();
+            sel = window.getSelection();
+            sel.removeAllRanges();
+            try {
+                range.selectNodeContents(el);
+                sel.addRange(range);
+            } catch (e) {
+                range.selectNode(el);
+                sel.addRange(range);
+            }
+        } else if (body.createTextRange) {
+            range = body.createTextRange();
+            range.moveToElementText(el);
+            range.select();
+        }
+        document.execCommand("Copy");
+    }
+</script>
+<script>
+    // 按钮点击后有弹出文本，显示data-content内容“复制成功”
+    $('.ui.top.attached.button')
+        .popup({
+            on: 'click'
+        });
+
+    $('#div_ext').click(function(){
+        var data2send = get_form();
+        // 制作？带参的下载地址,后期可以将明文转化一下,隐藏后台逻辑
+        var downloadURL = "{% url 'reports:export_as_excel' %}" + "?" + $.param(data2send,true);
+        // 直接在浏览器地址栏执行下载excel文件的地址
+        window.location.href =downloadURL; //也能发送GET请求,后台views会接收到参数变量 data2send
+        // window.location.href 语句可以实现一个框架的页面在执行服务器端代码后刷新另一个框架的页面
+
+
+    })
+</script>
+{% endblock%}
